@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #fff;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: sans-serif;
+            position: relative;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #viewer-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .viewer-img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            position: absolute;
+        }
+
+        #viewer {
+            z-index: 2;
+            transition: transform 0.6s ease-in-out, opacity 0.6s ease-in-out;
+        }
+
+        #next-viewer {
+            z-index: 1;
+            /* 奥の画像はアニメーションさせない */
+            transition: none;
+        }
+
+        /* めくるアニメーション（前面の画像のみ右へスライド） */
+        .slide-out-right {
+            transform: translateX(100%);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* 逆めくり用：右外側からのスライドイン初期状態 */
+        .slide-in-right-init {
+            transform: translateX(100%);
+            opacity: 0;
+            transition: none !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- 画像ビューアコンテナ -->
+    <div id="viewer-container">
+        <img id="viewer" class="viewer-img" alt="Viewer">
+        <img id="next-viewer" class="viewer-img" alt="Next Viewer" style="display: none;">
+    </div>
+
+    <script>
+        // ▼ 設定エリア：ファイル名のルールを変えたい場合はここを変更してください ▼
+        const PREFIX = 'rome_';   // 文字部分（例: 'IMG_'、'rome_' など）
+        const EXTENSION = '.png'; // 拡張子（例: '.jpg'、'.png' など）
+        const DIGITS = 2;         // 数字の桁数（例: 2なら 00, 01...）
+        const START_INDEX = 0;    // 開始番号（例: 0なら 00から、1なら 01から）
+        // ▲ 設定エリアここまで ▲
+
+        let currentIndex = START_INDEX;
+
+        const viewer = document.getElementById('viewer');
+        const nextViewer = document.getElementById('next-viewer');
+        const viewerContainer = document.getElementById('viewer-container');
+
+        let isAnimating = false;
+
+        // 連番のファイルパスを生成する関数
+        function getImagePath(index) {
+            const numStr = String(index).padStart(DIGITS, '0');
+            return `img/${PREFIX}${numStr}${EXTENSION}`;
+        }
+
+        // 表示状態の更新
+        function updateUI() {
+            viewer.style.display = 'block';
+            viewer.src = getImagePath(currentIndex);
+        }
+
+        // 初期ロード時に1枚目が存在しない場合のエラーハンドリング
+        viewer.onerror = () => {
+            if (currentIndex === START_INDEX) {
+                console.error('最初の画像が見つかりません: ' + getImagePath(START_INDEX));
+            }
+        };
+
+        // 画面がタップされた時の処理（1: 左タップで次へ、2: 右タップで前へ）
+        document.body.addEventListener('click', (e) => {
+            if (isAnimating) return; // アニメーション中はクリック無効
+
+            // 画面の左半分（1）をタップすると「次へ」、右半分（2）をタップすると「前へ」
+            const isLeftTap = e.clientX < window.innerWidth / 2;
+
+            if (isLeftTap) {
+                // === 領域1 (左) : 次の画像へ（右スライドアウト） ===
+                const nextIndex = currentIndex + 1;
+                const nextImagePath = getImagePath(nextIndex);
+
+                isAnimating = true;
+
+                const tempImg = new Image();
+                tempImg.onload = () => {
+                    // 次の画像を背後にセット
+                    nextViewer.src = nextImagePath;
+                    nextViewer.style.display = 'block';
+
+                    // 前面の現在の画像を右へスライドアウト
+                    viewer.classList.add('slide-out-right');
+
+                    setTimeout(() => {
+                        viewer.style.transition = 'none';
+
+                        currentIndex = nextIndex;
+                        viewer.src = nextImagePath;
+                        viewer.classList.remove('slide-out-right');
+
+                        nextViewer.style.display = 'none';
+
+                        setTimeout(() => {
+                            viewer.style.transition = '';
+                            isAnimating = false;
+                            updateUI();
+                        }, 50);
+                    }, 600);
+                };
+                tempImg.onerror = () => {
+                    // 次の画像がない場合は最後の画像をキープ（何もしない）
+                    isAnimating = false;
+                };
+
+                tempImg.src = nextImagePath;
+
+            } else {
+                // === 領域2 (右) : 前の画像へ（右外側からスライドイン） ===
+                if (currentIndex <= START_INDEX) return; // 最初の画像(00)の場合はこれ以上戻れない
+
+                const prevIndex = currentIndex - 1;
+                const prevImagePath = getImagePath(prevIndex);
+
+                isAnimating = true;
+
+                const tempImg = new Image();
+                tempImg.onload = () => {
+                    // 背後に現在の画像を配置
+                    nextViewer.src = getImagePath(currentIndex);
+                    nextViewer.style.display = 'block';
+
+                    // 前面(viewer)に「前の画像」をセットし、一旦アニメーションを切って右外側に配置
+                    viewer.style.transition = 'none';
+                    viewer.src = prevImagePath;
+                    viewer.classList.add('slide-in-right-init');
+
+                    // リフローを強制して初期位置を確定
+                    void viewer.offsetWidth;
+
+                    // transitionを有効化し、右外側から定位置へスライドイン
+                    viewer.style.transition = '';
+                    viewer.classList.remove('slide-in-right-init');
+
+                    setTimeout(() => {
+                        currentIndex = prevIndex;
+                        nextViewer.style.display = 'none';
+                        isAnimating = false;
+                        updateUI();
+                    }, 600);
+                };
+                tempImg.onerror = () => {
+                    isAnimating = false;
+                };
+
+                tempImg.src = prevImagePath;
+            }
+        });
+
+        // 最初の表示実行
+        updateUI();
+    </script>
+</body>
+
+</html>
